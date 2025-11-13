@@ -91,10 +91,17 @@ app.get('/', (req, res) => {
 });
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+  // Try to reconnect if not connected
+  if (!db) {
+    await connectDB();
+  }
+  
   res.json({
     status: 'ok',
     database: db ? 'connected' : 'disconnected',
+    hasMongoUri: !!process.env.MONGODB_URI,
+    mongoUriLength: process.env.MONGODB_URI ? process.env.MONGODB_URI.length : 0,
     timestamp: new Date().toISOString()
   });
 });
