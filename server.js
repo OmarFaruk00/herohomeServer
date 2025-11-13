@@ -29,23 +29,35 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// MongoDB connection
+// MongoDB connection - optimized for serverless
 let db;
+let client;
 const uri = process.env.MONGODB_URI;
-const client = new MongoClient(uri);
 
 async function connectDB() {
   try {
     if (!uri) {
-      console.error('❌ MONGODB_URI is not set in .env file');
+      console.error('❌ MONGODB_URI is not set');
       console.error('⚠️ Server will run but database operations will fail');
-      console.error('📝 Please add MONGODB_URI to backend/.env file');
       db = null;
-      return;
+      return null;
+    }
+    
+    // Reuse existing connection if available
+    if (client && db) {
+      return db;
     }
     
     console.log('🔌 Attempting to connect to MongoDB...');
-    console.log('URI:', uri.substring(0, 20) + '...'); // Show first 20 chars only
+    console.log('URI:', uri ? uri.substring(0, 20) + '...' : 'NOT SET');
+    
+    // Create new client if needed
+    if (!client) {
+      client = new MongoClient(uri, {
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 10000,
+      });
+    }
     
     await client.connect();
     db = client.db('homehero');
@@ -59,18 +71,18 @@ async function connectDB() {
     } catch (countError) {
       console.warn('⚠️ Could not count services (collection might be empty):', countError.message);
     }
+    
+    return db;
   } catch (error) {
     console.error('❌ MongoDB connection error:', error.message);
     console.error('Error code:', error.code);
-    console.error('📝 Please check your MONGODB_URI in backend/.env file');
-    console.error('💡 Make sure:');
-    console.error('   1. MONGODB_URI is set correctly');
-    console.error('   2. MongoDB Atlas IP whitelist includes your IP (0.0.0.0/0 for all)');
-    console.error('   3. Network connection is working');
     db = null;
+    client = null;
+    return null;
   }
 }
 
+// Connect on startup
 connectDB();
 
 // Routes
@@ -90,6 +102,12 @@ app.get('/api/health', (req, res) => {
 // Get all services with search and filter
 app.get('/api/services', async (req, res) => {
   try {
+    // Try to connect if not connected (for serverless)
+    if (!db) {
+      console.log('⚠️ Database not connected - attempting to reconnect...');
+      await connectDB();
+    }
+    
     // Check if database is connected
     if (!db) {
       console.error('⚠️ Database not connected - returning empty array');
